@@ -10,21 +10,25 @@ import (
 	git "github.com/bored-engineer/git-to-parquet/pkg"
 	"github.com/edsrzf/mmap-go"
 	"github.com/parquet-go/parquet-go"
+	flag "github.com/spf13/pflag"
 )
 
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Fprintf(os.Stderr, "usage: %s <packfile>...", filepath.Base(os.Args[0]))
+	zstd := flag.Bool("zstd", false, "compress the parquet files with zstd")
+	flag.Parse()
+	args := flag.Args()
+	if len(args) < 1 {
+		fmt.Fprintf(os.Stderr, "usage: %s [--zstd] <packfile>...", filepath.Base(os.Args[0]))
 		os.Exit(1)
 	}
-	for _, filename := range os.Args[1:] {
-		if err := run(filename); err != nil {
+	for _, filename := range args {
+		if err := run(filename, *zstd); err != nil {
 			log.Fatalf("%s:%s", filename, err)
 		}
 	}
 }
 
-func run(filename string) (rerr error) {
+func run(filename string, zstd bool) (rerr error) {
 	scanner, err := fastpack.NewScanner(10000)
 	if err != nil {
 		return fmt.Errorf("fastpack.New failed: %w", err)
@@ -60,6 +64,18 @@ func run(filename string) (rerr error) {
 		return fmt.Errorf("(*fastpack.Scanner).Trailer failed: %w", err)
 	}
 
+	writerOptions := func(bufferPattern string) []parquet.WriterOption {
+		opts := []parquet.WriterOption{
+			parquet.ColumnPageBuffers(
+				parquet.NewFileBufferPool("", bufferPattern),
+			),
+		}
+		if zstd {
+			opts = append(opts, parquet.Compression(&parquet.Zstd))
+		}
+		return opts
+	}
+
 	blobFile, err := os.CreateTemp("", "blob-*.parquet")
 	if err != nil {
 		return fmt.Errorf("os.CreateTemp failed: %w", err)
@@ -71,11 +87,7 @@ func run(filename string) (rerr error) {
 	}()
 	defer os.Remove(blobFile.Name())
 
-	blobWriter := parquet.NewGenericWriter[git.Blob](blobFile,
-		parquet.ColumnPageBuffers(
-			parquet.NewFileBufferPool("", "blob-*.buffer"),
-		),
-	)
+	blobWriter := parquet.NewGenericWriter[git.Blob](blobFile, writerOptions("blob-*.buffer")...)
 	defer func() {
 		if err := blobWriter.Close(); err != nil && rerr == nil {
 			rerr = fmt.Errorf("(*parquet.GenericWriter[git.Blob]).Close failed: %w", err)
@@ -99,11 +111,7 @@ func run(filename string) (rerr error) {
 	}()
 	defer os.Remove(commitFile.Name())
 
-	commitWriter := parquet.NewGenericWriter[git.Commit](commitFile,
-		parquet.ColumnPageBuffers(
-			parquet.NewFileBufferPool("", "commit-*.buffer"),
-		),
-	)
+	commitWriter := parquet.NewGenericWriter[git.Commit](commitFile, writerOptions("commit-*.buffer")...)
 	defer func() {
 		if err := commitWriter.Close(); err != nil && rerr == nil {
 			rerr = fmt.Errorf("(*parquet.GenericWriter[git.Commit]).Close failed: %w", err)
@@ -127,11 +135,7 @@ func run(filename string) (rerr error) {
 	}()
 	defer os.Remove(tagFile.Name())
 
-	tagWriter := parquet.NewGenericWriter[git.Tag](tagFile,
-		parquet.ColumnPageBuffers(
-			parquet.NewFileBufferPool("", "tag-*.buffer"),
-		),
-	)
+	tagWriter := parquet.NewGenericWriter[git.Tag](tagFile, writerOptions("tag-*.buffer")...)
 	defer func() {
 		if err := tagWriter.Close(); err != nil && rerr == nil {
 			rerr = fmt.Errorf("(*parquet.GenericWriter[git.Tag]).Close failed: %w", err)
@@ -155,11 +159,7 @@ func run(filename string) (rerr error) {
 	}()
 	defer os.Remove(treeFile.Name())
 
-	treeWriter := parquet.NewGenericWriter[git.Tree](treeFile,
-		parquet.ColumnPageBuffers(
-			parquet.NewFileBufferPool("", "tree-*.buffer"),
-		),
-	)
+	treeWriter := parquet.NewGenericWriter[git.Tree](treeFile, writerOptions("tree-*.buffer")...)
 	defer func() {
 		if err := treeWriter.Close(); err != nil && rerr == nil {
 			rerr = fmt.Errorf("(*parquet.GenericWriter[git.Tree]).Close failed: %w", err)
