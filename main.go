@@ -15,20 +15,21 @@ import (
 
 func main() {
 	zstd := flag.Bool("zstd", false, "compress the parquet files with zstd")
+	bloom := flag.Bool("bloom", false, "add a bloom filter for the oid field to the parquet files")
 	flag.Parse()
 	args := flag.Args()
 	if len(args) < 1 {
-		fmt.Fprintf(os.Stderr, "usage: %s [--zstd] <packfile>...", filepath.Base(os.Args[0]))
+		fmt.Fprintf(os.Stderr, "usage: %s [--zstd] [--bloom] <packfile>...", filepath.Base(os.Args[0]))
 		os.Exit(1)
 	}
 	for _, filename := range args {
-		if err := run(filename, *zstd); err != nil {
+		if err := run(filename, *zstd, *bloom); err != nil {
 			log.Fatalf("%s:%s", filename, err)
 		}
 	}
 }
 
-func run(filename string, zstd bool) (rerr error) {
+func run(filename string, zstd, bloom bool) (rerr error) {
 	scanner, err := fastpack.NewScanner(10000)
 	if err != nil {
 		return fmt.Errorf("fastpack.New failed: %w", err)
@@ -72,6 +73,9 @@ func run(filename string, zstd bool) (rerr error) {
 		}
 		if zstd {
 			opts = append(opts, parquet.Compression(&parquet.Zstd))
+		}
+		if bloom {
+			opts = append(opts, parquet.BloomFilters(parquet.SplitBlockFilter(10, "oid")))
 		}
 		return opts
 	}
