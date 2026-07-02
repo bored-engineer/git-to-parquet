@@ -8,6 +8,7 @@ import (
 
 	fastpack "github.com/bored-engineer/git-fastpack"
 	git "github.com/bored-engineer/git-to-parquet/pkg"
+	"github.com/edsrzf/mmap-go"
 	"github.com/parquet-go/parquet-go"
 )
 
@@ -29,10 +30,25 @@ func run(filename string) (rerr error) {
 		return fmt.Errorf("fastpack.New failed: %w", err)
 	}
 
-	packfile, err := os.ReadFile(filename)
+	file, err := os.Open(filename)
 	if err != nil {
-		return fmt.Errorf("os.ReadFile for %q failed: %w", filename, err)
+		return fmt.Errorf("os.Open for %q failed: %w", filename, err)
 	}
+	defer func() {
+		if err := file.Close(); err != nil && rerr == nil {
+			rerr = fmt.Errorf("(*os.File).Close for %q failed: %w", filename, err)
+		}
+	}()
+
+	packfile, err := mmap.Map(file, mmap.RDONLY, 0)
+	if err != nil {
+		return fmt.Errorf("mmap.Map for %q failed: %w", filename, err)
+	}
+	defer func() {
+		if err := packfile.Unmap(); err != nil && rerr == nil {
+			rerr = fmt.Errorf("(mmap.MMap).Unmap for %q failed: %w", filename, err)
+		}
+	}()
 	scanner.Reset(packfile)
 
 	_, objects, err := scanner.Header()

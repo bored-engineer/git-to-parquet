@@ -4,6 +4,7 @@ go 1.26.2
 
 require (
 	github.com/bored-engineer/git-fastpack v0.0.0-20260524064109-53c50c6052db
+	github.com/edsrzf/mmap-go v1.2.0
 	github.com/parquet-go/parquet-go v0.30.1
 )
 
