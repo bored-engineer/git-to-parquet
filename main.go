@@ -16,20 +16,21 @@ import (
 func main() {
 	zstd := flag.Bool("zstd", false, "compress the parquet files with zstd")
 	bloom := flag.Bool("bloom", false, "add a bloom filter for the oid field to the parquet files")
+	blobContents := flag.Bool("blob-contents", false, "preserve blob contents in the parquet output")
 	flag.Parse()
 	args := flag.Args()
 	if len(args) < 1 {
-		fmt.Fprintf(os.Stderr, "usage: %s [--zstd] [--bloom] <packfile>...", filepath.Base(os.Args[0]))
+		fmt.Fprintf(os.Stderr, "usage: %s [--zstd] [--bloom] [--blob-contents] <packfile>...", filepath.Base(os.Args[0]))
 		os.Exit(1)
 	}
 	for _, filename := range args {
-		if err := run(filename, *zstd, *bloom); err != nil {
+		if err := run(filename, *zstd, *bloom, *blobContents); err != nil {
 			log.Fatalf("%s:%s", filename, err)
 		}
 	}
 }
 
-func run(filename string, zstd, bloom bool) (rerr error) {
+func run(filename string, zstd, bloom, blobContents bool) (rerr error) {
 	scanner, err := fastpack.NewScanner(10000)
 	if err != nil {
 		return fmt.Errorf("fastpack.New failed: %w", err)
@@ -212,7 +213,9 @@ func run(filename string, zstd, bloom bool) (rerr error) {
 			if err := blob.UnmarshalBinary(buf); err != nil {
 				return fmt.Errorf("(*git.Blob).UnmarshalBinary for %q failed: %w", oid, err)
 			}
-			blob.Contents = nil
+			if !blobContents {
+				blob.Contents = nil
+			}
 			if _, err := blobWriter.Write([]git.Blob{blob}); err != nil {
 				return fmt.Errorf("(*parquet.GenericWriter[git.Blob]).Write for %q failed: %w", oid, err)
 			}
