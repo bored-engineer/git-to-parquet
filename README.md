@@ -10,7 +10,7 @@ go install github.com/bored-engineer/git-to-parquet@latest
 
 ## Usage
 ```console
-git-to-parquet <packfile>
+git-to-parquet <packfile>...
 ```
 
 ## Example: clone a repository and query it with DuckDB
