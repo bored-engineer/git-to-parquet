@@ -12,38 +12,45 @@ import (
 )
 
 func main() {
-	if len(os.Args) != 2 {
-		fmt.Fprintf(os.Stderr, "usage: %s <packfile>", filepath.Base(os.Args[0]))
+	if len(os.Args) < 2 {
+		fmt.Fprintf(os.Stderr, "usage: %s <packfile>...", filepath.Base(os.Args[0]))
 		os.Exit(1)
 	}
+	for _, filename := range os.Args[1:] {
+		if err := run(filename); err != nil {
+			log.Fatalf("%s:%s", filename, err)
+		}
+	}
+}
 
+func run(filename string) (rerr error) {
 	scanner, err := fastpack.NewScanner(10000)
 	if err != nil {
-		log.Fatalf("fastpack.New failed: %v", err)
+		return fmt.Errorf("fastpack.New failed: %w", err)
 	}
 
-	packfile, err := os.ReadFile(os.Args[1])
+	packfile, err := os.ReadFile(filename)
 	if err != nil {
-		log.Fatalf("os.ReadFile for %q failed: %v", os.Args[1], err)
+		return fmt.Errorf("os.ReadFile for %q failed: %w", filename, err)
 	}
 	scanner.Reset(packfile)
 
 	_, objects, err := scanner.Header()
 	if err != nil {
-		log.Fatalf("(*fastpack.Scanner).Header failed: %v", err)
+		return fmt.Errorf("(*fastpack.Scanner).Header failed: %w", err)
 	}
 	checksum, err := scanner.Trailer()
 	if err != nil {
-		log.Fatalf("(*fastpack.Scanner).Trailer failed: %v", err)
+		return fmt.Errorf("(*fastpack.Scanner).Trailer failed: %w", err)
 	}
 
 	blobFile, err := os.CreateTemp("", "blob-*.parquet")
 	if err != nil {
-		log.Fatalf("os.CreateTemp failed: %v", err)
+		return fmt.Errorf("os.CreateTemp failed: %w", err)
 	}
 	defer func() {
-		if err := blobFile.Close(); err != nil {
-			log.Fatalf("(*os.File).Close failed: %v", err)
+		if err := blobFile.Close(); err != nil && rerr == nil {
+			rerr = fmt.Errorf("(*os.File).Close failed: %w", err)
 		}
 	}()
 	defer os.Remove(blobFile.Name())
@@ -54,21 +61,24 @@ func main() {
 		),
 	)
 	defer func() {
-		if err := blobWriter.Close(); err != nil {
-			log.Fatalf("(*parquet.GenericWriter[git.Blob]).Close failed: %v", err)
+		if err := blobWriter.Close(); err != nil && rerr == nil {
+			rerr = fmt.Errorf("(*parquet.GenericWriter[git.Blob]).Close failed: %w", err)
+			return
 		}
-		if err := os.Rename(blobFile.Name(), fmt.Sprintf("blob-%x.parquet", checksum)); err != nil {
-			log.Fatalf("os.Rename for %q failed: %v", blobFile.Name(), err)
+		if rerr == nil {
+			if err := os.Rename(blobFile.Name(), fmt.Sprintf("blob-%x.parquet", checksum)); err != nil {
+				rerr = fmt.Errorf("os.Rename for %q failed: %w", blobFile.Name(), err)
+			}
 		}
 	}()
 
 	commitFile, err := os.CreateTemp("", "commit-*.parquet")
 	if err != nil {
-		log.Fatalf("os.CreateTemp failed: %v", err)
+		return fmt.Errorf("os.CreateTemp failed: %w", err)
 	}
 	defer func() {
-		if err := commitFile.Close(); err != nil {
-			log.Fatalf("(*os.File).Close failed: %v", err)
+		if err := commitFile.Close(); err != nil && rerr == nil {
+			rerr = fmt.Errorf("(*os.File).Close failed: %w", err)
 		}
 	}()
 	defer os.Remove(commitFile.Name())
@@ -79,21 +89,24 @@ func main() {
 		),
 	)
 	defer func() {
-		if err := commitWriter.Close(); err != nil {
-			log.Fatalf("(*parquet.GenericWriter[git.Commit]).Close failed: %v", err)
+		if err := commitWriter.Close(); err != nil && rerr == nil {
+			rerr = fmt.Errorf("(*parquet.GenericWriter[git.Commit]).Close failed: %w", err)
+			return
 		}
-		if err := os.Rename(commitFile.Name(), fmt.Sprintf("commit-%x.parquet", checksum)); err != nil {
-			log.Fatalf("os.Rename for %q failed: %v", commitFile.Name(), err)
+		if rerr == nil {
+			if err := os.Rename(commitFile.Name(), fmt.Sprintf("commit-%x.parquet", checksum)); err != nil {
+				rerr = fmt.Errorf("os.Rename for %q failed: %w", commitFile.Name(), err)
+			}
 		}
 	}()
 
 	tagFile, err := os.CreateTemp("", "tag-*.parquet")
 	if err != nil {
-		log.Fatalf("os.CreateTemp failed: %v", err)
+		return fmt.Errorf("os.CreateTemp failed: %w", err)
 	}
 	defer func() {
-		if err := tagFile.Close(); err != nil {
-			log.Fatalf("(*os.File).Close failed: %v", err)
+		if err := tagFile.Close(); err != nil && rerr == nil {
+			rerr = fmt.Errorf("(*os.File).Close failed: %w", err)
 		}
 	}()
 	defer os.Remove(tagFile.Name())
@@ -104,21 +117,24 @@ func main() {
 		),
 	)
 	defer func() {
-		if err := tagWriter.Close(); err != nil {
-			log.Fatalf("(*parquet.GenericWriter[git.Tag]).Close failed: %v", err)
+		if err := tagWriter.Close(); err != nil && rerr == nil {
+			rerr = fmt.Errorf("(*parquet.GenericWriter[git.Tag]).Close failed: %w", err)
+			return
 		}
-		if err := os.Rename(tagFile.Name(), fmt.Sprintf("tag-%x.parquet", checksum)); err != nil {
-			log.Fatalf("os.Rename for %q failed: %v", tagFile.Name(), err)
+		if rerr == nil {
+			if err := os.Rename(tagFile.Name(), fmt.Sprintf("tag-%x.parquet", checksum)); err != nil {
+				rerr = fmt.Errorf("os.Rename for %q failed: %w", tagFile.Name(), err)
+			}
 		}
 	}()
 
 	treeFile, err := os.CreateTemp("", "tree-*.parquet")
 	if err != nil {
-		log.Fatalf("os.CreateTemp failed: %v", err)
+		return fmt.Errorf("os.CreateTemp failed: %w", err)
 	}
 	defer func() {
-		if err := treeFile.Close(); err != nil {
-			log.Fatalf("(*os.File).Close failed: %v", err)
+		if err := treeFile.Close(); err != nil && rerr == nil {
+			rerr = fmt.Errorf("(*os.File).Close failed: %w", err)
 		}
 	}()
 	defer os.Remove(treeFile.Name())
@@ -129,57 +145,61 @@ func main() {
 		),
 	)
 	defer func() {
-		if err := treeWriter.Close(); err != nil {
-			log.Fatalf("(*parquet.GenericWriter[git.Tree]).Close failed: %v", err)
+		if err := treeWriter.Close(); err != nil && rerr == nil {
+			rerr = fmt.Errorf("(*parquet.GenericWriter[git.Tree]).Close failed: %w", err)
+			return
 		}
-		if err := os.Rename(treeFile.Name(), fmt.Sprintf("tree-%x.parquet", checksum)); err != nil {
-			log.Fatalf("os.Rename for %q failed: %v", treeFile.Name(), err)
+		if rerr == nil {
+			if err := os.Rename(treeFile.Name(), fmt.Sprintf("tree-%x.parquet", checksum)); err != nil {
+				rerr = fmt.Errorf("os.Rename for %q failed: %w", treeFile.Name(), err)
+			}
 		}
 	}()
 
 	for range objects {
 		ot, buf, err := scanner.Object()
 		if err != nil {
-			log.Fatalf("(*fastpack.Scanner).Object failed: %v", err)
+			return fmt.Errorf("(*fastpack.Scanner).Object failed: %w", err)
 		}
 		oid := fastpack.OID(ot, buf)
 		switch ot {
 		case fastpack.CommitObject:
 			commit := git.Commit{OID: oid}
 			if err := commit.UnmarshalBinary(buf); err != nil {
-				log.Fatalf("(*git.Commit).UnmarshalBinary for %q failed: %v", oid, err)
+				return fmt.Errorf("(*git.Commit).UnmarshalBinary for %q failed: %w", oid, err)
 			}
 			if _, err := commitWriter.Write([]git.Commit{commit}); err != nil {
-				log.Fatalf("(*parquet.GenericWriter[git.Commit]).Write for %q failed: %v", oid, err)
+				return fmt.Errorf("(*parquet.GenericWriter[git.Commit]).Write for %q failed: %w", oid, err)
 			}
 		case fastpack.TreeObject:
 			tree := git.Tree{OID: oid}
 			if err := tree.UnmarshalBinary(buf); err != nil {
-				log.Fatalf("(*git.Tree).UnmarshalBinary for %q failed: %v", oid, err)
+				return fmt.Errorf("(*git.Tree).UnmarshalBinary for %q failed: %w", oid, err)
 			}
 			if _, err := treeWriter.Write([]git.Tree{tree}); err != nil {
-				log.Fatalf("(*parquet.GenericWriter[git.Tree]).Write for %q failed: %v", oid, err)
+				return fmt.Errorf("(*parquet.GenericWriter[git.Tree]).Write for %q failed: %w", oid, err)
 			}
 		case fastpack.TagObject:
 			tag := git.Tag{OID: oid}
 			if err := tag.UnmarshalBinary(buf); err != nil {
-				log.Fatalf("(*git.Tag).UnmarshalBinary for %q failed: %v", oid, err)
+				return fmt.Errorf("(*git.Tag).UnmarshalBinary for %q failed: %w", oid, err)
 			}
 			if _, err := tagWriter.Write([]git.Tag{tag}); err != nil {
-				log.Fatalf("(*parquet.GenericWriter[git.Tag]).Write for %q failed: %v", oid, err)
+				return fmt.Errorf("(*parquet.GenericWriter[git.Tag]).Write for %q failed: %w", oid, err)
 			}
 		case fastpack.BlobObject:
 			blob := git.Blob{OID: oid}
 			if err := blob.UnmarshalBinary(buf); err != nil {
-				log.Fatalf("(*git.Blob).UnmarshalBinary for %q failed: %v", oid, err)
+				return fmt.Errorf("(*git.Blob).UnmarshalBinary for %q failed: %w", oid, err)
 			}
 			blob.Contents = nil
 			if _, err := blobWriter.Write([]git.Blob{blob}); err != nil {
-				log.Fatalf("(*parquet.GenericWriter[git.Blob]).Write for %q failed: %v", oid, err)
+				return fmt.Errorf("(*parquet.GenericWriter[git.Blob]).Write for %q failed: %w", oid, err)
 			}
 		default:
-			log.Fatalf("unknown object type: %s", ot)
+			return fmt.Errorf("unknown object type: %s", ot)
 		}
 	}
 
+	return nil
 }
